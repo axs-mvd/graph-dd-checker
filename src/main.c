@@ -153,6 +153,7 @@ void test(char *file_name, uint8_t expected_diameter) {
             exit(1);
         }
         printf("[OK]\n");
+        fflush(stdout);
     }
 
     remove_queue(q);
@@ -160,6 +161,7 @@ void test(char *file_name, uint8_t expected_diameter) {
     remove_graph(g);
 
     printf("diameter is less or equal to %d\n", expected_diameter);
+    fflush(stdout);
 }
 
 int main (int argc, char *argv[]) {
