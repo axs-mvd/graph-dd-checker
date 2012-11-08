@@ -1,6 +1,7 @@
 CFLAGS = -O3 -pipe -W -Wall -pthread -pedantic -fPIC  #release
 #CFLAGS = -g -pipe -W -Wall -pthread -pedantic -fPIC   #debug
 
+
 ################################################################################
 ## Objects
 ################################################################################
@@ -29,7 +30,7 @@ all: $(ALL_EXEC) copy_executables
 
 ################################################################################
 $(MAIN_EXECUTABLE): $(OBJECTS) $(MAIN_OBJECT)
-	$(CC) $(LINK_FLAGS) $^ -o $@
+	$(CC) $^ -o $@ -lpthread
 
 ################################################################################
 clean: clear

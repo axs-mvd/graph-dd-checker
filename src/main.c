@@ -4,6 +4,15 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
+
+struct walk_thread_parameters {
+    struct graph   *g;
+    struct queue   *q;
+    struct visited *v;
+    node_id i;
+    uint8_t max_distance;
+};
 
 /*=================================================*/
 uint8_t walk(struct graph *g, struct queue *q, struct visited *v, 
@@ -29,13 +38,31 @@ uint8_t walk(struct graph *g, struct queue *q, struct visited *v,
             if (!is_visited(v, adj) && current_distance +1 <= max_distance) {
                 mark_visited(v, adj);
                 enqueue(q, adj, current_distance +1);
-            } else {
-                /*printf("visited!\n");*/
             }
         }
     }
     return all_visited(v);
 }
+
+/*=================================================*/
+void *walk_thread(void *args) {
+    struct walk_thread_parameters *param; 
+    uint8_t *ret;
+
+    param = (struct walk_thread_parameters *)args;
+
+    ret = malloc(sizeof(uint8_t));
+
+    *ret = walk(param->g,
+             param->q,
+             param->v,
+             param->i,
+             param->max_distance);
+
+    pthread_exit((void *) ret);  
+    return 0;
+}
+
 /*=================================================*/
 int check_undirected(struct graph *g) {
     node_id i;
@@ -118,21 +145,23 @@ void load_graph_from_file(struct graph *g, char *file_name) {
     fclose(file);
 }
 
-void test(char *file_name, uint8_t expected_diameter) {
+void test(char *file_name, uint8_t expected_diameter, uint8_t thread_count) {
     uint32_t order;
     uint16_t degree;
     node_id i; 
+    uint32_t idx;
     struct graph *g;
-    struct queue *q;
-    struct visited *v;
-
-    printf("file: %s expected_diameter: %d\n", file_name, expected_diameter);
+    pthread_t *thread_array;
+    struct walk_thread_parameters *thread_parameters_array;
+    uint8_t *ret;
+  
+    printf("file: %s expected_diameter: %d threads: %d\n", file_name, expected_diameter, thread_count);
     printf("computing order and max degree..\n");
     get_order_and_degree(file_name, &order, &degree);
     printf("order: %u, degree: %d\n", order, degree);
     
     printf("loading graph.. \n");
-    g = create_graph(order, degree);
+    g= create_graph(order, degree);
     load_graph_from_file(g, file_name);
 
     printf("check directionality.. \n");
@@ -142,22 +171,47 @@ void test(char *file_name, uint8_t expected_diameter) {
         printf("\tgraph is directed\n");
         exit(1);
     }
-   
-    v = create_visited(order); 
-    q = create_queue();
+    thread_parameters_array = malloc(sizeof(struct walk_thread_parameters) * thread_count); 
+    thread_array  = malloc(sizeof(pthread_t       ) * thread_count);
+    
+    for (idx = 0; idx  < thread_count; idx++) {
+        thread_parameters_array[idx].v = create_visited(order);
+        thread_parameters_array[idx].q = create_queue(order);
+        thread_parameters_array[idx].g = g;
+        thread_parameters_array[idx].max_distance = expected_diameter;
+    }   
 
-    for (i = 0; i < order; i++) {
-        printf("walking from %u ", i);
-        if (!walk(g, q, v, i, expected_diameter)) {
-            printf(" [FAIL] could not reach all nodes in %d steps\n", expected_diameter);
-            exit(1);
+    i = 0;
+    while (i < order) {
+        for (idx = 0; idx < thread_count && i + idx < order; idx++) {
+            thread_parameters_array[idx].i = i + idx;
+            if (pthread_create(&(thread_array[idx]), 0, walk_thread, (void *)&(thread_parameters_array[idx])) != 0) {
+                printf("[FAIL] could not create thread, aborting!\n");
+                exit(1);
+            }
         }
-        printf("[OK]\n");
-        fflush(stdout);
+        for (idx = 0; idx < thread_count && i + idx < order; idx++) {
+            if (pthread_join(thread_array[idx], (void *)&ret) != 0) {
+                printf("[FAIL] could not join thread, aborting!\n");
+                exit(1);
+            }
+            if (*ret != 1) {
+                printf(" [FAIL] could not reach all nodes in %d steps\n", expected_diameter);
+                exit(1);
+            }
+            printf("[OK] walking from %u\n", i + idx);
+            free(ret);
+        }
+        i+=thread_count;
     }
 
-    remove_queue(q);
-    remove_visited(v);
+    for (idx = 0; idx  < thread_count; idx++) {
+        remove_visited(thread_parameters_array[idx].v);
+        remove_queue(thread_parameters_array[idx].q);
+    }   
+    free(thread_parameters_array);
+    free(thread_array);
+
     remove_graph(g);
 
     printf("diameter is less or equal to %d\n", expected_diameter);
@@ -167,13 +221,16 @@ void test(char *file_name, uint8_t expected_diameter) {
 int main (int argc, char *argv[]) {
     char *file_name;
     uint8_t expected_diameter;
+    uint8_t threads_count;
    
-    if (argc != 3) {
-        printf("usage: %s <file> <diameter>\n", argv[0]);
+    if (argc != 4) {
+        printf("usage: %s <file> <diameter> <threads>\n", argv[0]);
     } else {
         file_name = argv[1];
         expected_diameter = atoi(argv[2]);
-        test(file_name, expected_diameter);
+        threads_count = atoi(argv[3]);
+
+        test(file_name, expected_diameter, threads_count);
     }
 
     return 0;
